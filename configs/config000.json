@@ -1,0 +1,64 @@
+{
+  "seed": 42,
+  "data": {
+    "data_dir": "data",
+    "val_size": 64,
+    "max_train_samples": 256,
+    "extra_train_sources": []
+  },
+  "image": {
+    "size": 256,
+    "augment": {
+      "rotate_deg": 10,
+      "translate": 0.05,
+      "scale": [
+        0.9,
+        1.1
+      ]
+    }
+  },
+  "tokenizer": {
+    "max_length": 128
+  },
+  "encoder": {
+    "type": "scratch",
+    "patch_size": 16,
+    "dim": 128,
+    "depth": 2,
+    "num_heads": 4,
+    "mlp_ratio": 4.0,
+    "dropout": 0.0
+  },
+  "decoder": {
+    "dim": 128,
+    "depth": 2,
+    "num_heads": 4,
+    "mlp_ratio": 4.0,
+    "dropout": 0.0
+  },
+  "train": {
+    "batch_size": 16,
+    "max_steps": 200,
+    "lr": 0.001,
+    "encoder_lr_scale": 1.0,
+    "weight_decay": 0.05,
+    "warmup_steps": 20,
+    "warmup_init_lr": 0.000001,
+    "min_lr_ratio": 0.01,
+    "grad_clip": 1.0,
+    "label_smoothing": 0.0,
+    "amp": false,
+    "num_workers": 0,
+    "log_every": 10,
+    "eval_every": 50,
+    "save_every": 100,
+    "keep_last_k": 3
+  },
+  "eval": {
+    "batch_size": 64,
+    "num_logged_samples": 8
+  },
+  "log": {
+    "journal_mode": "WAL"
+  }
+}
