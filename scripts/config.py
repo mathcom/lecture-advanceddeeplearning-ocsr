@@ -14,7 +14,10 @@ OUTPUTS_DIR = Path("outputs")
 # 설정 파일에 있어야 하는 키. 하나라도 없거나 모르는 키가 있으면 오류를 낸다.
 # encoder는 type에 따라 키가 달라서 ENCODER_KEYS에 따로 적는다.
 REQUIRED_KEYS = {
-    "": {"seed", "data", "image", "tokenizer", "encoder", "decoder", "train", "eval", "log"},
+    "": {
+        "seed", "data", "image", "tokenizer", "encoder", "decoder", "train", "eval", "log",
+        "submission",
+    },
     "data": {"data_dir", "val_size", "max_train_samples", "extra_train_sources"},
     "image": {"size", "augment"},
     "image.augment": {"rotate_deg", "translate", "scale"},
@@ -27,12 +30,16 @@ REQUIRED_KEYS = {
     },
     "eval": {"batch_size", "num_logged_samples"},
     "log": {"journal_mode"},
+    "submission": {"default_smiles"},
 }
 ENCODER_KEYS = {
     "timm": {"type", "name", "pretrained", "drop_path_rate"},
     "scratch": {"type", "patch_size", "dim", "depth", "num_heads", "mlp_ratio", "dropout"},
 }
 EXTRA_SOURCE_KEYS = {"csv", "image_dir"}
+
+# 학습 결과에 영향을 주지 않는 항목. 학습한 뒤에 바꾸어도 되므로 diff_config가 비교하지 않는다.
+NON_TRAINING_SECTIONS = {"submission"}
 
 
 def load_config(name: str) -> dict:
@@ -133,10 +140,10 @@ def load_snapshot(name: str) -> dict:
 def diff_config(a: dict, b: dict) -> list[str]:
     """두 설정에서 값이 다른 키를 점 표기(예: "train.lr")로 돌려준다.
 
-    한쪽에만 있는 키도 다른 것으로 본다.
+    한쪽에만 있는 키도 다른 것으로 본다. NON_TRAINING_SECTIONS는 비교하지 않는다.
     """
     differences = []
-    for key in sorted(a.keys() | b.keys()):
+    for key in sorted((a.keys() | b.keys()) - NON_TRAINING_SECTIONS):
         if key not in a or key not in b:
             differences.append(key)
         elif isinstance(a[key], dict) and isinstance(b[key], dict):

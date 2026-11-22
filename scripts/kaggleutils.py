@@ -41,15 +41,19 @@ def normalize_smiles(smiles) -> str:
     return ""
 
 
-def make_submission(image_ids: list[str], predicted_smiles: list, path: str | Path) -> pd.DataFrame:
+def make_submission(
+    image_ids: list[str], predicted_smiles: list, path: str | Path, default_smiles: str
+) -> pd.DataFrame:
     """예측을 정규화하여 제출 파일(`image_id,SMILES`)로 저장한다.
 
-    무효한 예측과 1,000자를 넘는 예측은 빈 칸으로 둔다.
+    Kaggle은 빈 칸이 있는 제출을 받지 않으므로, 무효한 예측과 1,000자를 넘는 예측은
+    default_smiles로 채운다.
 
     Args:
         image_ids: 이미지 ID 목록. sample_submission.csv와 같은 순서여야 한다.
         predicted_smiles: 같은 순서의 모델 출력 문자열.
         path: 저장할 CSV 경로.
+        default_smiles: 무효한 예측 대신 적을 SMILES(설정의 `submission.default_smiles`).
     Returns:
         저장한 내용의 DataFrame.
     """
@@ -57,16 +61,27 @@ def make_submission(image_ids: list[str], predicted_smiles: list, path: str | Pa
         raise ValueError(
             f"image_id {len(image_ids)}개와 예측 {len(predicted_smiles)}개의 수가 다릅니다."
         )
+    default = normalize_smiles(default_smiles)
+    if default == "" or len(default) > MAX_SMILES_LENGTH:
+        raise ValueError(
+            f"submission.default_smiles는 {MAX_SMILES_LENGTH}자 이하의 유효한 SMILES여야 "
+            f"합니다: {default_smiles!r}"
+        )
+
     normalized = [normalize_smiles(smiles) for smiles in predicted_smiles]
-    normalized = [s if len(s) <= MAX_SMILES_LENGTH else "" for s in normalized]
+    is_usable = [0 < len(smiles) <= MAX_SMILES_LENGTH for smiles in normalized]
+    normalized = [s if usable else default for s, usable in zip(normalized, is_usable)]
 
     submission = pd.DataFrame({"image_id": image_ids, "SMILES": normalized})
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     submission.to_csv(path, index=False, lineterminator="\n")
 
-    num_blank = normalized.count("")
-    print(f"제출 파일 저장: {path} (전체 {len(submission)}행, 빈 칸 {num_blank}행)")
+    num_default = is_usable.count(False)
+    print(
+        f"제출 파일 저장: {path} "
+        f"(전체 {len(submission)}행, 기본값 {default!r}로 채운 {num_default}행)"
+    )
     return submission
 
 
@@ -95,5 +110,7 @@ def validate_submission(path: str | Path, sample_submission_path: str | Path) ->
             )
 
     for image_id, smiles in zip(submission["image_id"], submission["SMILES"]):
-        if smiles and normalize_smiles(smiles) != smiles:
+        if not smiles:
+            raise ValueError(f"{image_id}의 SMILES가 비어 있습니다.")
+        if normalize_smiles(smiles) != smiles:
             raise ValueError(f"{image_id}의 SMILES가 정규화되어 있지 않습니다: {smiles!r}")

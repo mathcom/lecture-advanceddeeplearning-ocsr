@@ -101,7 +101,7 @@
 
 - 제출 파일은 `image_id`, `SMILES` 두 열을 가지며 `sample_submission.csv`와 같은 300개 `image_id`를 담는다.
 - 행마다 정답과 예측을 Morgan fingerprint(반지름 2, 2048비트, 입체화학 미반영)로 바꾸어 Tanimoto similarity를 계산하고, 전체 행의 평균이 점수이다.
-- 예측이 비어 있거나, 유효한 SMILES가 아니거나, 1,000자를 넘으면 그 행은 0점이다.
+- 빈 칸이 있는 파일은 제출할 수 없다. 유효한 SMILES가 아니거나 1,000자를 넘는 예측은 0점이다. 제출 파일에서는 이런 예측을 `submission.default_smiles`로 채운다(7.6절).
 - 채점기는 RDKit 없이 동작하며 SMILES를 **적힌 그대로** 읽는다. 따라서 제출하는 SMILES는 반드시 RDKit 표준 SMILES로 정규화되어 있어야 한다. 정규화하지 않은 예측(예: Kekulé 표기 `C1=CC=CC=C1`)은 같은 분자여도 점수가 낮게 나온다.
 - 채점기는 wildcard 원자(`*`), 명시적 방향족 결합(`:`), 배위 결합(`->`, `<-`)을 지원하지 않는다. 이 표기가 남은 예측은 무효로 처리한다.
 
@@ -282,6 +282,9 @@ main/
   },
   "log": {
     "journal_mode": "WAL"
+  },
+  "submission": {
+    "default_smiles": "C"
   }
 }
 ```
@@ -322,6 +325,7 @@ main/
 | `eval.batch_size` | 검증·추론 배치 크기 |
 | `eval.num_logged_samples` | 검증 때마다 예측 결과를 로그에 남길 검증 표본 수 |
 | `log.journal_mode` | SQLite journal 모드. `"WAL"` 또는 `"DELETE"` (7.7절) |
+| `submission.default_smiles` | 제출 파일에서 유효하지 않은 예측 대신 적을 SMILES. 유효한 SMILES여야 하며 빈 문자열은 쓸 수 없다. 학습에 쓰이지 않으므로 학습한 뒤에 바꾸어도 된다 |
 
 `encoder`는 `type`에 따라 허용되는 키 집합이 다르다. 검증할 때 `type`에 맞는 키만 정확히 있어야 한다.
 
@@ -356,7 +360,7 @@ GPU 없이도 수 분 안에 전체 흐름(학습 → 모니터링 → 추론)�
 - `load_config(name: str) -> dict`: `configs/{name}.json`을 읽고 6절의 규칙으로 검증하여 돌려준다. `name`은 확장자 없는 파일 이름이다.
 - `run_dir(name: str) -> pathlib.Path`: `outputs/{name}`을 돌려준다. 하위 경로(`ckpts`, `logs`, `predictions`)를 얻는 함수도 여기에 둔다.
 - `save_snapshot(config, name)`, `load_snapshot(name)`: `outputs/{name}/config.json`을 쓰고 읽는다.
-- `diff_config(a, b) -> list[str]`: 두 설정에서 값이 다른 키를 `"train.lr"`과 같은 점 표기로 돌려준다. 재개와 추론에서 설정 불일치를 알리는 데 쓴다.
+- `diff_config(a, b) -> list[str]`: 두 설정에서 값이 다른 키를 `"train.lr"`과 같은 점 표기로 돌려준다. 재개와 추론에서 설정 불일치를 알리는 데 쓴다. 학습 결과에 영향을 주지 않는 `submission`은 비교하지 않는다.
 
 ### 7.2 `tokenizer.py`
 
@@ -461,11 +465,11 @@ SMILES_TOKEN_PATTERN = re.compile(
 ### 7.6 `kaggleutils.py`
 
 - `normalize_smiles(smiles) -> str`: 4.2절과 같다.
-- `make_submission(image_ids, predicted_smiles, path) -> pandas.DataFrame`: 예측을 모두 `normalize_smiles`에 통과시켜 `image_id,SMILES` CSV로 저장한다. 무효 예측과 1,000자를 넘는 예측은 빈 칸으로 저장한다. 저장 후 전체 행 수와 빈 칸 수를 출력한다. 줄바꿈은 LF로 고정한다.
+- `make_submission(image_ids, predicted_smiles, path, default_smiles) -> pandas.DataFrame`: 예측을 모두 `normalize_smiles`에 통과시켜 `image_id,SMILES` CSV로 저장한다. 무효 예측과 1,000자를 넘는 예측은 `default_smiles`를 정규화한 값으로 채운다. `default_smiles`가 유효하지 않으면 `ValueError`. 저장 후 전체 행 수와 기본값으로 채운 행 수를 출력한다. 줄바꿈은 LF로 고정한다.
 - `validate_submission(path, sample_submission_path) -> None`: 아래를 검사하고 어긋나면 내용을 밝히는 오류를 낸다.
   - 열이 정확히 `image_id`, `SMILES`이다.
   - 행 수와 `image_id`의 순서가 `sample_submission.csv`와 같다.
-  - 비어 있지 않은 `SMILES`는 모두 `normalize_smiles`를 적용해도 바뀌지 않는다.
+  - 모든 `SMILES`가 비어 있지 않고, `normalize_smiles`를 적용해도 바뀌지 않는다.
 
 ### 7.7 `logutils.py`
 
@@ -640,8 +644,8 @@ CREATE INDEX IF NOT EXISTS idx_scalars_name_step ON scalars (split, name, step);
 | 3 | 저장된 어휘로 토크나이저를 복원하고, 모델을 만들어 체크포인트를 불러온다. 체크포인트의 step과 저장 당시 검증 지표를 출력한다 |
 | 4 | (점검) 검증 세트를 다시 예측하여 점수를 계산하고, 체크포인트에 기록된 검증 지표와 나란히 보여 준다. 혼합 정밀도 때문에 끝자리가 조금 다를 수 있다 |
 | 5 | test 예측: `build_test_loader` → `predict_smiles` |
-| 6 | 제출 파일 저장: `make_submission` → `outputs/{CONFIG_NAME}/predictions/submission_{CHECKPOINT}.csv`, 이어서 `validate_submission` |
-| 7 | 결과 확인: 유효 예측 비율, test 이미지 몇 장과 예측 구조 그림 |
+| 6 | 제출 파일 저장: `make_submission` → `outputs/{CONFIG_NAME}/predictions/submission_{CHECKPOINT}.csv`(무효 예측은 현재 config의 `submission.default_smiles`로 채움), 이어서 `validate_submission` |
+| 7 | 결과 확인: 유효 예측 비율(기본값으로 채우기 전 기준), test 이미지 몇 장과 예측 구조 그림 |
 
 - 이 노트북은 test 정답 없이 동작해야 한다.
 - 인코더를 만들 때 사전학습 가중치를 다시 내려받지 않는다(곧바로 체크포인트로 덮어쓰므로 `build_model(..., load_pretrained=False)`로 만든다).

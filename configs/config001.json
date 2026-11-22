@@ -57,5 +57,8 @@
   },
   "log": {
     "journal_mode": "WAL"
+  },
+  "submission": {
+    "default_smiles": "C"
   }
 }
